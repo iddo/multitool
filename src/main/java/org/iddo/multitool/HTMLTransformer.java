@@ -1,6 +1,9 @@
 package org.iddo.multitool;
 
 import java.io.Closeable;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -9,6 +12,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
+import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
 import org.htmlcleaner.CleanerProperties;
 import org.htmlcleaner.ContentNode;
@@ -47,6 +52,41 @@ public class HTMLTransformer implements Closeable {
 	public void transform() {
 		for (TagNode tagNode : node.getChildTags()) {
 			transform(tagNode);
+		}
+	}
+
+	public static void main(String[] args) throws IOException {
+		if (args.length != 3) {
+			System.out.println("Syntax: HTMLTransformer <input file> <key prefix> <replacement format>");
+			System.out.println("Example: HTMLTransformer input.html mypage '<spring:message code=\"{0}\" />'");
+			return;
+		}
+		transform(new File(args[0]), args[1], args[2]);
+	}
+	
+	public static void transform(File inputFile, String name, String keyFormat) throws IOException {
+		Properties props = new Properties();
+
+		String filename = inputFile.getName();
+		String baseName = FilenameUtils.getBaseName(filename);
+		String ext = FilenameUtils.getExtension(filename);
+
+		OutputStream transformedFileOS = null;
+		OutputStream propertiesFileOS = null;
+		InputStream is = null;
+		HTMLTransformer htmlTransformer = null;
+		try {
+			transformedFileOS = new FileOutputStream(baseName + ".multi." + ext);
+			is = new FileInputStream(inputFile);
+			htmlTransformer = new HTMLTransformer(name, is, props, transformedFileOS, keyFormat);
+			htmlTransformer.transform();
+
+			propertiesFileOS = new FileOutputStream(baseName + ".properties");
+			props.store(propertiesFileOS, name);
+		} finally {
+			IOUtils.closeQuietly(propertiesFileOS);
+			IOUtils.closeQuietly(htmlTransformer);
+			IOUtils.closeQuietly(is);
 		}
 	}
 
