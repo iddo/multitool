@@ -10,6 +10,7 @@ import java.io.OutputStream;
 import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -39,6 +40,7 @@ public class HTMLTransformer implements Closeable {
 	private boolean keepURLs;
 	private boolean keepEmail;
 	private Set<String> keptClasses;
+	private boolean removeJspTags;
 
 	public HTMLTransformer(String pagePrefix, InputStream input, Properties properties, OutputStream output, String replacementFormat) throws IOException {
 		this.pagePrefix = pagePrefix;
@@ -51,6 +53,7 @@ public class HTMLTransformer implements Closeable {
 		this.removeDuplicates = false;
 		this.duplicateMap = new HashMap<String, String>();
 		this.keptClasses = Collections.emptySet();
+		this.removeJspTags = true;
 
 		// create an instance of HtmlCleaner
 		HtmlCleaner cleaner = new HtmlCleaner();
@@ -87,6 +90,10 @@ public class HTMLTransformer implements Closeable {
 	public void setKeepEmails(boolean keepEmails) {
 		this.keepEmail = keepEmails;
 	}
+	
+	public void setRemoveJspTags(boolean removeJspTags) {
+		this.removeJspTags = removeJspTags;
+	}
 
 	/**
 	 * 
@@ -97,6 +104,19 @@ public class HTMLTransformer implements Closeable {
 		this.keptClasses = classes;
 	}
 
+	/**
+	 * 
+	 * @param classes
+	 *            comma separated html classes to not externelize
+	 */
+	public void setKeptClasses(String csvClasses) {
+		Set<String> classes = new HashSet<String>();
+		for (String htmlClass : StringUtils.split(csvClasses, ",")) {
+			classes.add(htmlClass);
+		}
+		this.keptClasses = classes;
+	}
+
 	public void transform() {
 		for (TagNode tagNode : node.getChildTags()) {
 			transform(tagNode);
@@ -104,15 +124,19 @@ public class HTMLTransformer implements Closeable {
 	}
 
 	public static void main(String[] args) throws IOException {
-		if (args.length != 3) {
-			System.out.println("Syntax: HTMLTransformer <input file> <key prefix> <replacement format>");
-			System.out.println("Example: HTMLTransformer input.html mypage '<spring:message code=\"{0}\" />'");
+		if (args.length < 3) {
+			System.out.println("Syntax: HTMLTransformer <input file> <key prefix> <replacement format> [<csv classes to not externalize>]");
+			System.out.println("Example: HTMLTransformer input.html mypage '<spring:message code=\"{0}\" />' email,password");
 			return;
 		}
-		transform(new File(args[0]), args[1], args[2]);
+		if (args.length >= 3) {
+			transform(new File(args[0]), args[1], args[2], args[3]);
+		} else {
+			transform(new File(args[0]), args[1], args[2], null);
+		}
 	}
 
-	public static void transform(File inputFile, String name, String keyFormat) throws IOException {
+	public static void transform(File inputFile, String name, String keyFormat, String excerptClasses) throws IOException {
 		Properties props = new Properties();
 
 		String filename = inputFile.getName();
@@ -127,6 +151,7 @@ public class HTMLTransformer implements Closeable {
 			transformedFileOS = new FileOutputStream(baseName + ".multi." + ext);
 			is = new FileInputStream(inputFile);
 			htmlTransformer = new HTMLTransformer(name, is, props, transformedFileOS, keyFormat);
+			htmlTransformer.setKeptClasses(excerptClasses);
 			htmlTransformer.transform();
 
 			propertiesFileOS = new FileOutputStream(baseName + ".properties");
@@ -144,9 +169,13 @@ public class HTMLTransformer implements Closeable {
 				transform((TagNode) o);
 			} else if (o instanceof ContentNode) {
 				ContentNode cn = (ContentNode) o;
-				String content = StringUtils.trimToNull(cn.getContent().toString());
+				String content = StringUtils.trimToNull(cn.getContent().toString().replaceAll("[\\n\\s]+", " "));
 				if (content != null) {
-					if (keepEmail && isEmail(content)) {
+					if (content.equals(".")) {
+						// Skip sole points
+					}else if (removeJspTags && content.startsWith("<%@") && content.endsWith("%>")) {
+						// Skip JSP tags
+					} else if (keepEmail && isEmail(content)) {
 						// Skip email
 					} else if (keepURLs && isUrl(content)) {
 						// Skip url
