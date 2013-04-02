@@ -8,13 +8,17 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.text.MessageFormat;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.validator.EmailValidator;
+import org.apache.commons.validator.UrlValidator;
 import org.htmlcleaner.CleanerProperties;
 import org.htmlcleaner.ContentNode;
 import org.htmlcleaner.HtmlCleaner;
@@ -30,6 +34,11 @@ public class HTMLTransformer implements Closeable {
 
 	private Map<String, Integer> propNameCounters;
 	private String replacementFormat;
+	private boolean removeDuplicates;
+	private Map<String, String> duplicateMap;
+	private boolean keepURLs;
+	private boolean keepEmail;
+	private Set<String> keptClasses;
 
 	public HTMLTransformer(String pagePrefix, InputStream input, Properties properties, OutputStream output, String replacementFormat) throws IOException {
 		this.pagePrefix = pagePrefix;
@@ -37,16 +46,55 @@ public class HTMLTransformer implements Closeable {
 		this.outputStream = output;
 		this.propNameCounters = new HashMap<String, Integer>();
 		this.replacementFormat = replacementFormat;
+		this.keepEmail = true;
+		this.keepURLs = true;
+		this.removeDuplicates = false;
+		this.duplicateMap = new HashMap<String, String>();
+		this.keptClasses = Collections.emptySet();
 
 		// create an instance of HtmlCleaner
 		HtmlCleaner cleaner = new HtmlCleaner();
 
 		cleanerProps = cleaner.getProperties();
-		// customize cleaner's behaviour with property setters
+		// customize cleaner's behavior with property setters
 		cleanerProps.setOmitDoctypeDeclaration(false);
 
 		node = cleaner.clean(input);
+	}
 
+	/**
+	 * @param removeDuplicates
+	 *            Re-use keys if content is the same (default: false)
+	 */
+	public void setRemoveDuplicates(boolean removeDuplicates) {
+		this.removeDuplicates = removeDuplicates;
+	}
+
+	/**
+	 * 
+	 * @param keepURLs
+	 *            if set to true URL's will not be externelized (default: true)
+	 */
+	public void setKeepURLs(boolean keepURLs) {
+		this.keepURLs = keepURLs;
+	}
+
+	/**
+	 * 
+	 * @param keepEmails
+	 *            if set to true Emails will not be externelized (default: true)
+	 */
+	public void setKeepEmails(boolean keepEmails) {
+		this.keepEmail = keepEmails;
+	}
+
+	/**
+	 * 
+	 * @param classes
+	 *            html classes to not externelize
+	 */
+	public void setKeptClasses(Set<String> classes) {
+		this.keptClasses = classes;
 	}
 
 	public void transform() {
@@ -63,7 +111,7 @@ public class HTMLTransformer implements Closeable {
 		}
 		transform(new File(args[0]), args[1], args[2]);
 	}
-	
+
 	public static void transform(File inputFile, String name, String keyFormat) throws IOException {
 		Properties props = new Properties();
 
@@ -98,11 +146,39 @@ public class HTMLTransformer implements Closeable {
 				ContentNode cn = (ContentNode) o;
 				String content = StringUtils.trimToNull(cn.getContent().toString());
 				if (content != null) {
-					String key = addProp(currentTag.getName(), content);
-					currentTag.replaceChild(cn, new ContentNode(MessageFormat.format(replacementFormat, key)));
+					if (keepEmail && isEmail(content)) {
+						// Skip email
+					} else if (keepURLs && isUrl(content)) {
+						// Skip url
+					} else {
+						String tagClass = currentTag.getAttributeByName("class");
+						if (tagClass != null && keptClasses.contains(tagClass)) {
+							// Skip tag
+						} else {
+							String key;
+							if (removeDuplicates && duplicateMap.containsKey(content)) {
+								key = duplicateMap.get(content);
+							} else {
+								key = addProp(currentTag.getName(), content);
+								if (removeDuplicates) {
+									duplicateMap.put(content, key);
+								}
+							}
+							currentTag.replaceChild(cn, new ContentNode(MessageFormat.format(replacementFormat, key)));
+						}
+					}
 				}
 			}
 		}
+	}
+
+	private boolean isEmail(String content) {
+		return EmailValidator.getInstance().isValid(content);
+	}
+
+	private boolean isUrl(String content) {
+		UrlValidator urlValidator = new UrlValidator();
+		return urlValidator.isValid(content);
 	}
 
 	private String addProp(String optionalPropName, String content) {
