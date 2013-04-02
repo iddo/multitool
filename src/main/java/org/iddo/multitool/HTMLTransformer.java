@@ -137,7 +137,7 @@ public class HTMLTransformer implements Closeable {
 	}
 
 	public static void transform(File inputFile, String name, String keyFormat, String excerptClasses) throws IOException {
-		Properties props = new Properties();
+		Properties props = new LinkedProperties();
 
 		String filename = inputFile.getName();
 		String baseName = FilenameUtils.getBaseName(filename);
